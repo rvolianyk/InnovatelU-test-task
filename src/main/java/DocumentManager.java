@@ -3,7 +3,7 @@ import lombok.Data;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.function.Predicate;
 
 /**
  * For implement this task focus on clear code, and make this solution as simple readable as possible
@@ -25,8 +25,8 @@ public class DocumentManager {
      * @return saved document
      */
     public Document save(Document document) {
-        if (document.getId() == null) {
-            while (documents.containsKey(String.valueOf(id))) {
+        if (Objects.isNull(document.getId())) {
+            while (documents.containsKey(String.valueOf(id))) { //finding the smallest free key
                 id++;
             }
             document.setId(String.valueOf(id++));
@@ -42,20 +42,21 @@ public class DocumentManager {
      * @return list matched documents
      */
     public List<Document> search(SearchRequest request) {
-        if (request == null) return Collections.emptyList();
+        return request != null ? documents.values().stream()
+                .filter(doc -> matchesSearchCriteria(request.getTitlePrefixes(), prefix -> doc.getTitle().startsWith(prefix)))
+                .filter(doc -> matchesSearchCriteria(request.getContainsContents(), content -> doc.getContent().contains(content)))
+                .filter(doc -> matchesSearchCriteria(request.getAuthorIds(), authorId -> doc.getAuthor().getId().equals(authorId)))
+                .filter(doc -> matchesSingleSearchCriteria(request.getCreatedFrom(), createdFrom -> doc.getCreated().isAfter(createdFrom)))
+                .filter(doc -> matchesSingleSearchCriteria(request.getCreatedTo(), createdTo -> doc.getCreated().isBefore(createdTo)))
+                .toList() : Collections.emptyList();
+    }
 
-        return documents.values().stream()
-                .filter(doc -> request.getTitlePrefixes() == null ||
-                        request.getTitlePrefixes().stream().anyMatch(prefix -> doc.getTitle().startsWith(prefix)))
-                .filter(doc -> request.getContainsContents() == null ||
-                        request.getContainsContents().stream().anyMatch(content -> doc.getContent().contains(content)))
-                .filter(doc -> request.getAuthorIds() == null ||
-                        request.getAuthorIds().contains(doc.getAuthor().getId()))
-                .filter(doc -> request.getCreatedFrom() == null ||
-                        doc.getCreated().isAfter(request.getCreatedFrom()))
-                .filter(doc -> request.getCreatedTo() == null ||
-                        doc.getCreated().isBefore(request.getCreatedTo()))
-                .collect(Collectors.toList());
+    private <T> boolean matchesSearchCriteria(List<T> values, Predicate<T> predicate) { //for List criteria
+        return Objects.isNull(values) || values.stream().anyMatch(predicate);
+    }
+
+    private <T> boolean matchesSingleSearchCriteria(T value, Predicate<T> predicate) { //for single criteria
+        return Objects.isNull(value) || predicate.test(value);
     }
 
     /**
