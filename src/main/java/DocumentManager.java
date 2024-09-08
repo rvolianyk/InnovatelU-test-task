@@ -16,7 +16,7 @@ import java.util.function.Predicate;
  */
 public class DocumentManager {
     private final Map<String, Document> documents = new HashMap<>();
-    private int id = 1;
+
     /**
      * Implementation of this method should upsert the document to your storage
      * And generate unique id if it does not exist, don't change [created] field
@@ -26,13 +26,26 @@ public class DocumentManager {
      */
     public Document save(Document document) {
         if (Objects.isNull(document.getId())) {
-            while (documents.containsKey(String.valueOf(id))) { //finding the smallest free key
-                id++;
-            }
-            document.setId(String.valueOf(id++));
+            document.setId(uniqueId());
+        }
+        Document target = documents.get(document.getId());
+        if (Objects.nonNull(target)) {
+            document = update(target, document);
         }
         documents.put(document.getId(), document);
         return document;
+    }
+
+    private String uniqueId() {
+        Integer maxId = documents.keySet().stream().map(Integer::valueOf).max(Integer::compareTo).orElse(-1);
+        return String.valueOf(++maxId);
+    }
+
+    private Document update(Document target, Document updates) {
+        target.setAuthor(updates.getAuthor());
+        target.setContent(updates.getContent());
+        target.setTitle(updates.getTitle());
+        return target;
     }
 
     /**
@@ -42,20 +55,39 @@ public class DocumentManager {
      * @return list matched documents
      */
     public List<Document> search(SearchRequest request) {
-        return request != null ? documents.values().stream()
-                .filter(doc -> matchesSearchCriteria(request.getTitlePrefixes(), prefix -> doc.getTitle().startsWith(prefix)))
-                .filter(doc -> matchesSearchCriteria(request.getContainsContents(), content -> doc.getContent().contains(content)))
-                .filter(doc -> matchesSearchCriteria(request.getAuthorIds(), authorId -> doc.getAuthor().getId().equals(authorId)))
-                .filter(doc -> matchesSingleSearchCriteria(request.getCreatedFrom(), createdFrom -> doc.getCreated().isAfter(createdFrom)))
-                .filter(doc -> matchesSingleSearchCriteria(request.getCreatedTo(), createdTo -> doc.getCreated().isBefore(createdTo)))
-                .toList() : Collections.emptyList();
+        if (Objects.isNull(request)) {
+            return Collections.emptyList();
+        }
+        return documents.values().stream()
+                .filter(doc -> isTitleStartWith(doc, request))
+                .filter(doc -> containsContent(doc, request))
+                .filter(doc -> matchAuthorIds(doc, request))
+                .filter(doc -> inDateRange(doc, request))
+                .toList();
     }
 
-    private <T> boolean matchesSearchCriteria(List<T> values, Predicate<T> predicate) { //for List criteria
+    private boolean isTitleStartWith(Document doc, SearchRequest request) {
+        return matchesSearchCriteria(request.getTitlePrefixes(), prefix -> doc.getTitle().toLowerCase().startsWith(prefix.toLowerCase()));
+    }
+
+    private boolean containsContent(Document doc, SearchRequest request) {
+        return matchesSearchCriteria(request.getContainsContents(), content -> doc.getContent().toLowerCase().contains(content.toLowerCase()));
+    }
+
+    private boolean matchAuthorIds(Document doc, SearchRequest request) {
+        return matchesSearchCriteria(request.getAuthorIds(), authorId -> doc.getAuthor().getId().equals(authorId));
+    }
+
+    private <T> boolean matchesSearchCriteria(List<T> values, Predicate<T> predicate) {
         return Objects.isNull(values) || values.stream().anyMatch(predicate);
     }
 
-    private <T> boolean matchesSingleSearchCriteria(T value, Predicate<T> predicate) { //for single criteria
+    private boolean inDateRange(Document doc, SearchRequest request) {
+        return matchesSingleSearchCriteria(request.getCreatedFrom(), createdFrom -> doc.getCreated().isAfter(createdFrom))
+                && matchesSingleSearchCriteria(request.getCreatedTo(), createdTo -> doc.getCreated().isBefore(createdTo));
+    }
+
+    private <T> boolean matchesSingleSearchCriteria(T value, Predicate<T> predicate) {
         return Objects.isNull(value) || predicate.test(value);
     }
 
